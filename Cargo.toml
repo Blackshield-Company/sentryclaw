@@ -1,6 +1,6 @@
 [package]
 name = "sentryclaw"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["synth <synthalorian@gmail.com>"]
 description = "Self-hosted AI code review bot using local LLMs"
