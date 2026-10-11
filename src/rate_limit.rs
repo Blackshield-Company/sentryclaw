@@ -11,15 +11,37 @@ pub struct RateLimiter {
     max_requests: u32,
     window: Duration,
     store: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
-    #[allow(dead_code)]
-    cleanup_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
+    /// Shared guard for the background cleanup task. The task is aborted when
+    /// the last clone of this `RateLimiter` is dropped, or on [`RateLimiter::shutdown`].
+    cleanup_task: Option<Arc<CleanupTask>>,
+}
+
+/// Owns the cleanup task's `JoinHandle` and aborts it on drop.
+#[derive(Debug)]
+struct CleanupTask(tokio::task::JoinHandle<()>);
+
+impl CleanupTask {
+    fn abort(&self) {
+        self.0.abort();
+    }
+
+    fn is_finished(&self) -> bool {
+        self.0.is_finished()
+    }
+}
+
+impl Drop for CleanupTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl RateLimiter {
     pub fn new(max_requests: u32, window_seconds: u64) -> Self {
         let window = Duration::from_secs(window_seconds);
         let store: Arc<Mutex<HashMap<String, Vec<Instant>>>> = Arc::new(Mutex::new(HashMap::new()));
-        let store_clone = store.clone();
+        // The task only holds a weak reference so it never keeps the store alive.
+        let store_weak = Arc::downgrade(&store);
         let cleanup_window = window;
 
         // Only spawn cleanup task if we're inside a Tokio runtime
@@ -31,7 +53,10 @@ impl RateLimiter {
                     loop {
                         interval.tick().await;
                         let now = Instant::now();
-                        let mut store = store_clone.lock().await;
+                        let Some(store) = store_weak.upgrade() else {
+                            break;
+                        };
+                        let mut store = store.lock().await;
                         store.retain(|_, timestamps| {
                             timestamps.retain(|t| now.duration_since(*t) < cleanup_window);
                             !timestamps.is_empty()
@@ -46,7 +71,7 @@ impl RateLimiter {
             max_requests,
             window,
             store,
-            cleanup_handle: cleanup_handle.map(Arc::new),
+            cleanup_task: cleanup_handle.map(|h| Arc::new(CleanupTask(h))),
         }
     }
 
@@ -90,6 +115,20 @@ impl RateLimiter {
             timestamps.retain(|t| now.duration_since(*t) < self.window);
             !timestamps.is_empty()
         });
+    }
+
+    /// Stop the background cleanup task (affects all clones of this limiter).
+    /// Rate limiting keeps working; expired entries are still pruned lazily
+    /// per key and via [`RateLimiter::cleanup`].
+    pub fn shutdown(&self) {
+        if let Some(task) = &self.cleanup_task {
+            task.abort();
+        }
+    }
+
+    /// Whether the background cleanup task is running.
+    pub fn cleanup_task_running(&self) -> bool {
+        self.cleanup_task.as_ref().is_some_and(|t| !t.is_finished())
     }
 }
 
@@ -158,5 +197,41 @@ mod tests {
         limiter.cleanup().await;
 
         assert_eq!(limiter.count("client1").await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_stops_cleanup_task() {
+        let limiter = RateLimiter::new(10, 60);
+        assert!(limiter.cleanup_task_running());
+        limiter.shutdown();
+        tokio::task::yield_now().await;
+        assert!(!limiter.cleanup_task_running());
+        // Limiter still functions after shutdown.
+        assert!(limiter.is_allowed("client1").await);
+    }
+
+    #[tokio::test]
+    async fn test_drop_aborts_cleanup_task_only_after_last_clone() {
+        let limiter = RateLimiter::new(10, 60);
+        let handle = limiter.cleanup_task.as_ref().unwrap().clone();
+        let clone = limiter.clone();
+        drop(limiter);
+        tokio::task::yield_now().await;
+        assert!(
+            !handle.is_finished(),
+            "task must survive while a clone exists"
+        );
+        drop(clone);
+        // `handle` is the last strong ref; dropping it aborts the task.
+        let weak = Arc::downgrade(&handle);
+        drop(handle);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn test_no_task_outside_runtime() {
+        let limiter = RateLimiter::new(1, 1);
+        assert!(!limiter.cleanup_task_running());
+        limiter.shutdown();
     }
 }

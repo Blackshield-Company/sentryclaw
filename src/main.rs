@@ -82,8 +82,10 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let shutdown_clone = shutdown.clone();
+    let rate_limiter_for_shutdown = state.rate_limiter.clone();
     tokio::spawn(async move {
         wait_for_shutdown().await;
+        rate_limiter_for_shutdown.shutdown();
         shutdown_clone.shutdown();
     });
 
