@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
     let database = Arc::new(Database::new(&db_path)?);
     let metrics = Arc::new(Metrics::new());
     let rate_limiter = Arc::new(RateLimiter::new(60, 60));
+    let rate_limiter_for_shutdown = rate_limiter.clone();
     let shutdown = ShutdownHandle::new();
 
     let state = AppState {
@@ -82,12 +83,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let shutdown_clone = shutdown.clone();
-    tokio::spawn(async move {
-        wait_for_shutdown().await;
-        shutdown_clone.shutdown();
-    });
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            wait_for_shutdown().await;
+            shutdown_clone.shutdown();
+        })
+        .await?;
 
-    axum::serve(listener, app).await?;
+    // Stop background tasks once the server has drained.
+    rate_limiter_for_shutdown.shutdown();
+    info!("SentryClaw shut down cleanly");
     Ok(())
 }
 

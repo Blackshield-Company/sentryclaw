@@ -11,8 +11,20 @@ pub struct RateLimiter {
     max_requests: u32,
     window: Duration,
     store: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
-    #[allow(dead_code)]
-    cleanup_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
+    cleanup: Option<Arc<CleanupGuard>>,
+}
+
+/// Owns the background cleanup task. The task is aborted when `shutdown()`
+/// is called or when the last `RateLimiter` clone is dropped.
+#[derive(Debug)]
+struct CleanupGuard {
+    handle: tokio::task::AbortHandle,
+}
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
 }
 
 impl RateLimiter {
@@ -46,7 +58,11 @@ impl RateLimiter {
             max_requests,
             window,
             store,
-            cleanup_handle: cleanup_handle.map(Arc::new),
+            cleanup: cleanup_handle.map(|h| {
+                Arc::new(CleanupGuard {
+                    handle: h.abort_handle(),
+                })
+            }),
         }
     }
 
@@ -80,6 +96,18 @@ impl RateLimiter {
         } else {
             0
         }
+    }
+
+    /// Stop the background cleanup task. Idempotent; call on graceful shutdown.
+    pub fn shutdown(&self) {
+        if let Some(guard) = &self.cleanup {
+            guard.handle.abort();
+        }
+    }
+
+    /// Returns true if the background cleanup task has finished (or never ran).
+    pub fn is_cleanup_stopped(&self) -> bool {
+        self.cleanup.as_ref().is_none_or(|g| g.handle.is_finished())
     }
 
     /// Clean up expired entries to prevent unbounded growth.
@@ -158,5 +186,48 @@ mod tests {
         limiter.cleanup().await;
 
         assert_eq!(limiter.count("client1").await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_stops_cleanup_task() {
+        let limiter = RateLimiter::new(10, 60);
+        assert!(!limiter.is_cleanup_stopped());
+        limiter.shutdown();
+        tokio::task::yield_now().await;
+        for _ in 0..100 {
+            if limiter.is_cleanup_stopped() {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        assert!(limiter.is_cleanup_stopped());
+        // Limiter still works after shutdown; shutdown is idempotent.
+        limiter.shutdown();
+        assert!(limiter.is_allowed("client1").await);
+    }
+
+    #[tokio::test]
+    async fn test_drop_last_clone_aborts_cleanup_task() {
+        let limiter = RateLimiter::new(10, 60);
+        let abort = limiter.cleanup.as_ref().unwrap().handle.clone();
+        let clone = limiter.clone();
+        drop(limiter);
+        tokio::task::yield_now().await;
+        assert!(!abort.is_finished());
+        drop(clone);
+        for _ in 0..100 {
+            if abort.is_finished() {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        assert!(abort.is_finished());
+    }
+
+    #[test]
+    fn test_no_runtime_no_task() {
+        let limiter = RateLimiter::new(1, 1);
+        assert!(limiter.is_cleanup_stopped());
+        limiter.shutdown();
     }
 }
