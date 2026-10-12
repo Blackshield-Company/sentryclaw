@@ -326,7 +326,7 @@ SentryClaw is designed for minimal resource usage:
 
 ## License
 
-MIT — This is the wave. ⚫🦞
+Apache-2.0 — see [LICENSE](LICENSE). This is the wave. ⚫🦞
 
 ---
 
