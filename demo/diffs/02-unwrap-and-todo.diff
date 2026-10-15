@@ -1,0 +1,10 @@
+diff --git a/src/parser.rs b/src/parser.rs
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -40,4 +40,8 @@ pub fn parse(input: &str) -> Config {
+-    toml::from_str(input).unwrap_or_default()
++    // TODO: handle errors properly
++    let cfg: Config = toml::from_str(input).unwrap();
++    let port = cfg.port.parse::<u16>().expect("port");
++    unsafe { std::ptr::read(&cfg) }
+ }
