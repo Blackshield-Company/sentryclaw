@@ -57,6 +57,17 @@ jobs:
       - name: Run build
         run: cargo build --release
 
+  msrv:
+    name: Build on Rust 1.88 + demo smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - name: Build
+        run: cargo build --locked
+      - name: Demo smoke test
+        run: ./target/debug/sentryclaw demo --once
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest

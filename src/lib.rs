@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod dashboard;
 pub mod db;
+pub mod demo;
 pub mod diff_filter;
 pub mod github;
 pub mod gitlab;
