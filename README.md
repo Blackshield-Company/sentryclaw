@@ -1,3 +1,5 @@
+![sentryclaw](.github/preview.png)
+
 # 🦞 SentryClaw
 
 Self-hosted AI code review for GitHub/GitLab PRs. Runs entirely on your infrastructure — no API keys, no data leaves your network.
