@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
 # Copy manifests first for better layer caching
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY demo ./demo
 COPY tests ./tests
 COPY benches ./benches
 COPY config.example.toml ./

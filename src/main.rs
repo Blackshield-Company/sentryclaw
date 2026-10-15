@@ -27,6 +27,14 @@ struct HealthStatus {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let demo_env = std::env::var("SENTRYCLAW_DEMO")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    if args.get(1).map(String::as_str) == Some("demo") || demo_env {
+        return run_demo(args.get(2).map(String::as_str)).await;
+    }
+
     let config = Arc::new(AppConfig::load()?);
     let logging_config = config.logging_config();
 
@@ -164,4 +172,27 @@ async fn metrics_handler(
 
     let body = state.metrics.render_prometheus().await;
     Ok((headers, body))
+}
+
+/// `sentryclaw demo [--once]`: rule-based reviews of bundled sample diffs.
+/// No model, no GitHub App, no config file. Binds DEMO_HOST:DEMO_PORT (0.0.0.0:8080).
+async fn run_demo(arg: Option<&str>) -> anyhow::Result<()> {
+    use sentryclaw::demo;
+    if arg == Some("--once") {
+        for (name, diff) in demo::SAMPLES {
+            print!("{}", demo::render_text(&demo::review_diff(name, diff)));
+        }
+        return Ok(());
+    }
+    tracing_subscriber::fmt::init();
+    let host = std::env::var("DEMO_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("DEMO_PORT")
+        .or_else(|_| std::env::var("PORT"))
+        .unwrap_or_else(|_| "8080".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port)).await?;
+    info!("SentryClaw demo mode on http://{}", listener.local_addr()?);
+    axum::serve(listener, demo::router())
+        .with_graceful_shutdown(wait_for_shutdown())
+        .await?;
+    Ok(())
 }

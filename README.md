@@ -337,3 +337,23 @@ Apache-2.0 — see [LICENSE](LICENSE). This is the wave. ⚫🦞
 If this project saved you time, solved a problem, or just made your day a little more neon, you can fuel the next one:
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/synthalorian)
+
+## Demo mode
+
+Runs with no model, no GitHub App, no database and no config file. It reviews the
+bundled sample diffs in `demo/diffs/` with built-in rules. Requires Rust 1.88+.
+
+```bash
+cargo run --release -- demo            # web UI at http://localhost:8080/demo
+cargo run --release -- demo --once     # print reviews to stdout and exit
+SENTRYCLAW_DEMO=1 ./sentryclaw         # same as `sentryclaw demo`
+```
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `DEMO_PORT` (or `PORT`) | `8080` | Listen port |
+| `DEMO_HOST` | `0.0.0.0` | Bind address |
+| `SENTRYCLAW_DEMO` | unset | `1`/`true` starts demo mode without the `demo` argument |
+
+Endpoints: `GET /demo`, `GET /demo/api/samples`, `GET /demo/api/samples/{name}`,
+`POST /demo/api/review` (body: a unified diff), `GET /health`.
