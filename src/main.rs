@@ -76,6 +76,10 @@ async fn main() -> anyhow::Result<()> {
             .route(
                 "/dashboard/api/search",
                 get(sentryclaw::dashboard::search_api_handler),
+            )
+            .route(
+                "/dashboard/knight/:state",
+                get(sentryclaw::dashboard::knight_handler),
             );
         info!("\u{1f4ca} Dashboard enabled at /dashboard");
     }

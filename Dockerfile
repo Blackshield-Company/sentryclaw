@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY demo ./demo
+COPY static ./static
 COPY tests ./tests
 COPY benches ./benches
 COPY config.example.toml ./

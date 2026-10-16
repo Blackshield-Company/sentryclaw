@@ -1,6 +1,7 @@
 use axum::{
-    extract::{Query, State},
-    response::Html,
+    extract::{Path, Query, State},
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Response},
     Json,
 };
 use chrono::{DateTime, Utc};
@@ -35,6 +36,31 @@ fn default_limit() -> i64 {
     50
 }
 
+/// Knight A (the Blackshield Company mascot) SVG for a dashboard state.
+pub fn knight_svg(state: &str) -> Option<&'static str> {
+    match state {
+        "idle" => Some(include_str!("../static/knight/knight-idle.svg")),
+        "thinking" => Some(include_str!("../static/knight/knight-thinking.svg")),
+        "error" => Some(include_str!("../static/knight/knight-error.svg")),
+        _ => None,
+    }
+}
+
+/// Serves the knight used by the dashboard's empty, loading and error states.
+pub async fn knight_handler(Path(state): Path<String>) -> Response {
+    match knight_svg(&state) {
+        Some(svg) => (
+            [
+                (header::CONTENT_TYPE, "image/svg+xml"),
+                (header::CACHE_CONTROL, "public, max-age=86400"),
+            ],
+            svg,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 pub async fn dashboard_handler(State(state): State<AppState>) -> Html<String> {
     let db = state.database.clone();
     let refresh = state.config.dashboard_config().refresh_seconds;
@@ -42,7 +68,9 @@ pub async fn dashboard_handler(State(state): State<AppState>) -> Html<String> {
     match render_dashboard(&db, refresh).await {
         Ok(html) => Html(html),
         Err(e) => Html(format!(
-            "<h1>Dashboard Error</h1><p>{}</p>",
+            "<body style=\"background:#0d1117;color:#c9d1d9;font-family:sans-serif;text-align:center;padding:4rem\">\
+             <img src=\"/dashboard/knight/error\" width=\"128\" height=\"112\" alt=\"\" style=\"image-rendering:pixelated\">\
+             <h1>Dashboard Error</h1><p>{}</p></body>",
             escape_html(&e.to_string())
         )),
     }
@@ -166,6 +194,8 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
         th {{ background: rgba(88, 166, 255, 0.1); font-weight: 600; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; }}
         tr:hover {{ background: rgba(255,255,255,0.03); }}
         .empty {{ text-align: center; padding: 3rem; color: #8b949e; }}
+        .empty img {{ display: block; margin: 0 auto .75rem; width: 96px; height: 84px; image-rendering: pixelated; }}
+        .empty.error {{ color: #f85149; }}
         .severity-badge {{ display: inline-block; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }}
         .severity-critical {{ background: rgba(248, 81, 73, 0.2); color: #f85149; }}
         .severity-warning {{ background: rgba(210, 153, 34, 0.2); color: #d29922; }}
@@ -271,12 +301,15 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
             if (to) params.append('to', new Date(to).toISOString());
             params.append('limit', '50');
             
+            const tbody = document.getElementById('reviewsTable');
+            const knightRow = (state, msg) => `<tr><td colspan="6" class="empty${{state === 'error' ? ' error' : ''}}"><img src="/dashboard/knight/${{state}}" alt="">${{msg}}</td></tr>`;
+            tbody.innerHTML = knightRow('thinking', 'Searching reviews...');
+
             fetch('/dashboard/api/search?' + params.toString())
                 .then(r => r.json())
                 .then(data => {{
-                    const tbody = document.getElementById('reviewsTable');
                     if (data.length === 0) {{
-                        tbody.innerHTML = '<tr><td colspan="6" class="empty">No reviews found matching your criteria.</td></tr>';
+                        tbody.innerHTML = knightRow('idle', 'No reviews found matching your criteria.');
                         return;
                     }}
                     tbody.innerHTML = data.map(r => {{
@@ -285,7 +318,10 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
                         return `<tr><td>${{new Date(r.created_at).toLocaleString()}}</td><td>${{r.provider}}</td><td>${{r.repo}}#${{r.pr_number}}</td><td>${{emoji}} ${{r.verdict}}</td><td>${{r.inline_count}}</td><td>${{summary}}</td></tr>`;
                     }}).join('');
                 }})
-                .catch(err => console.error('Search failed:', err));
+                .catch(err => {{
+                    console.error('Search failed:', err);
+                    tbody.innerHTML = knightRow('error', 'Search failed. Check the server log.');
+                }});
             return false;
         }}
         setTimeout(() => location.reload(), {}000);
@@ -301,7 +337,7 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
         stats.warning_count,
         stats.info_count,
         if rows.is_empty() {
-            "<tr><td colspan=\"6\" class=\"empty\">No reviews yet. Start reviewing some code!</td></tr>".to_string()
+            "<tr><td colspan=\"6\" class=\"empty\"><img src=\"/dashboard/knight/idle\" alt=\"\">No reviews yet. Start reviewing some code!</td></tr>".to_string()
         } else {
             rows
         },
@@ -317,4 +353,17 @@ fn escape_html(input: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod knight_tests {
+    use super::knight_svg;
+
+    #[test]
+    fn knight_states_are_embedded_svgs() {
+        for state in ["idle", "thinking", "error"] {
+            assert!(knight_svg(state).unwrap().starts_with("<svg"), "{state}");
+        }
+        assert!(knight_svg("nope").is_none());
+    }
 }
