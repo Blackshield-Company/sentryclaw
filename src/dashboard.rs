@@ -7,7 +7,10 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{db::Database, AppState};
+use crate::{
+    db::{Database, ReviewRecord},
+    AppState,
+};
 
 #[derive(Serialize)]
 pub struct ApiStats {
@@ -136,28 +139,7 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
     let stats = db.get_stats().await?;
     let recent = db.get_recent_reviews(50).await?;
 
-    let mut rows = String::new();
-    for review in &recent {
-        let emoji = match review.verdict.as_str() {
-            "Approve" => "✅",
-            "RequestChanges" => "❌",
-            _ => "💬",
-        };
-        rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}#{}</td><td>{} {}</td><td>{}</td><td>{}</td></tr>\n",
-            review.created_at.format("%Y-%m-%d %H:%M"),
-            review.provider,
-            review.repo,
-            review.pr_number,
-            emoji,
-            review.verdict,
-            review.inline_count,
-            escape_html(&review.summary)
-                .chars()
-                .take(100)
-                .collect::<String>()
-        ));
-    }
+    let rows: String = recent.iter().map(render_review_row).collect();
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -302,25 +284,51 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
             params.append('limit', '50');
             
             const tbody = document.getElementById('reviewsTable');
-            const knightRow = (state, msg) => `<tr><td colspan="6" class="empty${{state === 'error' ? ' error' : ''}}"><img src="/dashboard/knight/${{state}}" alt="">${{msg}}</td></tr>`;
-            tbody.innerHTML = knightRow('thinking', 'Searching reviews...');
+            // Rows are built with DOM APIs and textContent so review data is never parsed as HTML.
+            const cell = (text) => {{
+                const td = document.createElement('td');
+                td.textContent = text;
+                return td;
+            }};
+            const knightRow = (state, msg) => {{
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 6;
+                td.className = state === 'error' ? 'empty error' : 'empty';
+                const img = document.createElement('img');
+                img.src = '/dashboard/knight/' + state;
+                img.alt = '';
+                td.append(img, document.createTextNode(msg));
+                tr.append(td);
+                return tr;
+            }};
+            const reviewRow = (r) => {{
+                const emoji = r.verdict === 'Approve' ? '✅' : r.verdict === 'RequestChanges' ? '❌' : '💬';
+                const tr = document.createElement('tr');
+                tr.append(
+                    cell(new Date(r.created_at).toLocaleString()),
+                    cell(String(r.provider ?? '')),
+                    cell(String(r.repo ?? '') + '#' + String(r.pr_number ?? '')),
+                    cell(emoji + ' ' + String(r.verdict ?? '')),
+                    cell(String(r.inline_count ?? '')),
+                    cell(String(r.summary || '').substring(0, 100)),
+                );
+                return tr;
+            }};
+            tbody.replaceChildren(knightRow('thinking', 'Searching reviews...'));
 
             fetch('/dashboard/api/search?' + params.toString())
                 .then(r => r.json())
                 .then(data => {{
                     if (data.length === 0) {{
-                        tbody.innerHTML = knightRow('idle', 'No reviews found matching your criteria.');
+                        tbody.replaceChildren(knightRow('idle', 'No reviews found matching your criteria.'));
                         return;
                     }}
-                    tbody.innerHTML = data.map(r => {{
-                        const emoji = r.verdict === 'Approve' ? '✅' : r.verdict === 'RequestChanges' ? '❌' : '💬';
-                        const summary = (r.summary || '').substring(0, 100);
-                        return `<tr><td>${{new Date(r.created_at).toLocaleString()}}</td><td>${{r.provider}}</td><td>${{r.repo}}#${{r.pr_number}}</td><td>${{emoji}} ${{r.verdict}}</td><td>${{r.inline_count}}</td><td>${{summary}}</td></tr>`;
-                    }}).join('');
+                    tbody.replaceChildren(...data.map(reviewRow));
                 }})
                 .catch(err => {{
                     console.error('Search failed:', err);
-                    tbody.innerHTML = knightRow('error', 'Search failed. Check the server log.');
+                    tbody.replaceChildren(knightRow('error', 'Search failed. Check the server log.'));
                 }});
             return false;
         }}
@@ -347,12 +355,36 @@ async fn render_dashboard(db: &Database, refresh_seconds: u64) -> anyhow::Result
     Ok(html)
 }
 
+/// Renders one reviews-table row. Every text field comes from webhook data,
+/// so all of it is HTML-escaped; the summary is truncated before escaping so
+/// an entity is never cut in half.
+fn render_review_row(review: &ReviewRecord) -> String {
+    let emoji = match review.verdict.as_str() {
+        "Approve" => "✅",
+        "RequestChanges" => "❌",
+        _ => "💬",
+    };
+    let summary: String = review.summary.chars().take(100).collect();
+    format!(
+        "<tr><td>{}</td><td>{}</td><td>{}#{}</td><td>{} {}</td><td>{}</td><td>{}</td></tr>\n",
+        review.created_at.format("%Y-%m-%d %H:%M"),
+        escape_html(&review.provider),
+        escape_html(&review.repo),
+        review.pr_number,
+        emoji,
+        escape_html(&review.verdict),
+        review.inline_count,
+        escape_html(&summary)
+    )
+}
+
 fn escape_html(input: &str) -> String {
     input
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[cfg(test)]
@@ -365,5 +397,63 @@ mod knight_tests {
             assert!(knight_svg(state).unwrap().starts_with("<svg"), "{state}");
         }
         assert!(knight_svg("nope").is_none());
+    }
+}
+
+#[cfg(test)]
+mod escaping_tests {
+    use super::{escape_html, render_review_row};
+    use crate::db::ReviewRecord;
+    use chrono::Utc;
+
+    fn record(repo: &str, provider: &str, verdict: &str, summary: &str) -> ReviewRecord {
+        ReviewRecord {
+            id: 1,
+            repo: repo.to_string(),
+            pr_number: 7,
+            provider: provider.to_string(),
+            head_sha: "abc".to_string(),
+            verdict: verdict.to_string(),
+            summary: summary.to_string(),
+            inline_count: 2,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn escape_html_covers_markup_characters() {
+        assert_eq!(
+            escape_html(r#"<a href="x" title='y'>&</a>"#),
+            "&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;"
+        );
+    }
+
+    #[test]
+    fn review_row_escapes_every_text_field() {
+        let row = render_review_row(&record(
+            "org/<b>repo</b>",
+            "git<i>hub</i>",
+            "<span>Approve</span>",
+            "<img src=x onerror=alert(1)>",
+        ));
+        assert!(!row.contains("<b>"));
+        assert!(!row.contains("<i>"));
+        assert!(!row.contains("<span>"));
+        assert!(!row.contains("<img"));
+        assert!(row.contains("org/&lt;b&gt;repo&lt;/b&gt;#7"));
+        assert!(row.contains("&lt;img src=x onerror=alert(1)&gt;"));
+    }
+
+    #[test]
+    fn review_row_truncates_summary_before_escaping() {
+        let summary = format!("{}&", "a".repeat(99));
+        let row = render_review_row(&record("o/r", "github", "Approve", &summary));
+        assert!(row.contains(&format!("{}&amp;</td>", "a".repeat(99))));
+    }
+
+    #[test]
+    fn dashboard_script_does_not_assign_inner_html() {
+        let source = include_str!("dashboard.rs");
+        assert!(!source.contains(concat!(".inner", "HTML")));
     }
 }
