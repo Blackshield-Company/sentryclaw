@@ -1,0 +1,35 @@
+# sentryclaw repair: config for the multi-agent defect repair loop.
+# Copy to repair.toml and pass with `sentryclaw repair <repo> --config repair.toml`.
+# Env overrides: REPAIR_BASE_URL, REPAIR_MODEL, REPAIR_API_KEY_ENV.
+
+[model]
+# "openai" = any OpenAI-compatible /v1/chat/completions server
+# (vLLM on an AMD ROCm GPU, llama.cpp server, Ollama, a hosted API).
+# "mock"   = scripted responses from mock_script (tests and offline demos).
+kind = "openai"
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-Coder-7B-Instruct"   # whatever the server was started with
+# api_key_env = "REPAIR_API_KEY"           # only if the server needs a bearer token
+max_tokens = 2048
+temperature = 0.0
+timeout_secs = 180
+# mock_script = "demo/repair/mock_script.json"
+
+[pipeline]
+max_defects = 5        # fix at most this many ranked defects
+max_attempts = 3       # Fixer -> Tester rounds per defect (failures fed back)
+max_model_calls = 40   # hard budget for the whole run
+protect_tests = true   # reject patches that edit, delete or disable tests
+stop_when_green = true
+max_file_chars = 20000
+max_context_chars = 60000
+
+[sandbox]
+# argv of the target repo's own tests; empty = detect from Cargo.toml,
+# go.mod, pyproject.toml/pytest.ini, package.json.
+test_command = []
+timeout_secs = 300
+deny_network = true        # bwrap (preferred) or `unshare -rn`
+require_isolation = false  # true = refuse to run tests unsandboxed
+jobs = 2                   # CARGO_BUILD_JOBS / MAKEFLAGS, keeps RAM low
+output_cap = 12000

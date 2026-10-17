@@ -31,6 +31,10 @@ async fn main() -> anyhow::Result<()> {
     let demo_env = std::env::var("SENTRYCLAW_DEMO")
         .map(|v| v == "1" || v == "true")
         .unwrap_or(false);
+    if args.get(1).map(String::as_str) == Some("repair") {
+        let code = sentryclaw::repair::cli::main_with_args(args[1..].to_vec()).await?;
+        std::process::exit(code);
+    }
     if args.get(1).map(String::as_str) == Some("demo") || demo_env {
         return run_demo(args.get(2).map(String::as_str)).await;
     }

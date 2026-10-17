@@ -12,6 +12,7 @@ pub mod llm;
 pub mod metrics;
 pub mod queue;
 pub mod rate_limit;
+pub mod repair;
 pub mod retry;
 pub mod review;
 pub mod rule_engine;
