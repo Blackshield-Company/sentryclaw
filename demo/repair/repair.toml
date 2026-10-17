@@ -1,0 +1,11 @@
+# Offline demo config: scripted mock model, sandboxed tests.
+[model]
+kind = "mock"
+mock_script = "mock_script.json"
+
+[pipeline]
+max_attempts = 3
+
+[sandbox]
+timeout_secs = 120
+jobs = 2

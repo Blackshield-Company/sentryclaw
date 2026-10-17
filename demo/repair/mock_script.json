@@ -1,0 +1,15 @@
+{
+  "_comment": "Scripted replies for `sentryclaw repair` on demo/repair-fixture. Each role pops replies in order. The first fixer reply is deliberately wrong to exercise the feedback loop.",
+  "finder": [
+    "```json\n[\n  {\n    \"file\": \"src/lib.rs\",\n    \"line\": 17,\n    \"title\": \"average returns Some(NaN) for an empty slice\",\n    \"description\": \"Dividing by values.len() == 0 yields NaN; the doc says None for empty input.\",\n    \"severity\": \"medium\",\n    \"tests\": [\n      \"tests::average_of_empty_is_none\"\n    ]\n  },\n  {\n    \"file\": \"src/lib.rs\",\n    \"line\": 7,\n    \"title\": \"sum_to excludes n (off-by-one)\",\n    \"description\": \"The range 1..n is half-open, so n itself is never added.\",\n    \"severity\": \"high\",\n    \"tests\": [\n      \"tests::sum_to_is_inclusive\"\n    ]\n  },\n  {\n    \"file\": \"src/lib.rs\",\n    \"line\": 12,\n    \"title\": \"is_leap_year ignores the divisible-by-400 rule\",\n    \"description\": \"Years like 2000 are leap years but the check rejects every multiple of 100.\",\n    \"severity\": \"high\",\n    \"tests\": [\n      \"tests::leap_years\"\n    ]\n  }\n]\n```"
+  ],
+  "ranker": [
+    "{\"order\": [\"D2\", \"D3\", \"D1\"], \"rationale\": \"Wrong arithmetic in core helpers first; the empty-input edge case last.\"}"
+  ],
+  "fixer": [
+    "```diff\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -4,7 +4,7 @@\n \n /// Sum of all integers from 1 to `n` inclusive.\n pub fn sum_to(n: u64) -> u64 {\n-    (1..n).sum()\n+    (0..n).sum()\n }\n \n /// Gregorian leap year rule.\n```",
+    "The range must be inclusive.\n```diff\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -4,7 +4,7 @@\n \n /// Sum of all integers from 1 to `n` inclusive.\n pub fn sum_to(n: u64) -> u64 {\n-    (1..n).sum()\n+    (1..=n).sum()\n }\n \n /// Gregorian leap year rule.\n```",
+    "```diff\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -9,7 +9,7 @@ pub fn sum_to(n: u64) -> u64 {\n \n /// Gregorian leap year rule.\n pub fn is_leap_year(year: u32) -> bool {\n-    year % 4 == 0 && year % 100 != 0\n+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0\n }\n \n /// Arithmetic mean, or `None` for an empty slice.\n```",
+    "```diff\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -14,6 +14,9 @@ pub fn is_leap_year(year: u32) -> bool {\n \n /// Arithmetic mean, or `None` for an empty slice.\n pub fn average(values: &[f64]) -> Option<f64> {\n+    if values.is_empty() {\n+        return None;\n+    }\n     let total: f64 = values.iter().sum();\n     Some(total / values.len() as f64)\n }\n```"
+  ]
+}

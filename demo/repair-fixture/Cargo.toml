@@ -1,0 +1,11 @@
+[package]
+name = "repair-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone demo crate with planted bugs for `sentryclaw repair`.
+# Not part of the sentryclaw build.
+[workspace]
+
+[dependencies]
