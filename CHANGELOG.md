@@ -5,6 +5,11 @@ All notable changes to SentryClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`sentryclaw repair`** (experimental): multi-agent defect repair. Finder, Ranker, Fixer and Tester agents over any OpenAI-compatible endpoint (or a scripted mock), with sandboxed test runs (bwrap or `unshare -rn`, timeout, no network), patch vetting that protects tests, failure feedback with a retry cap, and a planted-bug demo fixture. See `docs/REPAIR.md`.
+
 ## [1.0.0] — 2026-06-06
 
 ### Added

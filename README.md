@@ -338,6 +338,18 @@ If this project saved you time, solved a problem, or just made your day a little
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/synthalorian)
 
+## Repair mode (experimental)
+
+`sentryclaw repair <repo>` runs a four-agent loop (find, rank, fix, test)
+against any OpenAI-compatible model and the repo's own tests in a sandbox,
+and writes a patch plus a report. Try it offline with the mock model:
+
+```bash
+cargo run -- repair demo/repair-fixture --config demo/repair/repair.toml
+```
+
+See [docs/REPAIR.md](docs/REPAIR.md).
+
 ## Demo mode
 
 Runs with no model, no GitHub App, no database and no config file. It reviews the
