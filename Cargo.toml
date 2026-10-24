@@ -6,7 +6,7 @@ rust-version = "1.88"
 authors = ["synth <synthalorian@gmail.com>"]
 description = "Self-hosted AI code review bot using local LLMs"
 license = "Apache-2.0"
-repository = "https://github.com/synthalorian/sentryclaw"
+repository = "https://github.com/Blackshield-Company/sentryclaw"
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
