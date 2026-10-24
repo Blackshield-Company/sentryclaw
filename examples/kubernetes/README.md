@@ -83,7 +83,7 @@ spec:
     spec:
       containers:
         - name: sentryclaw
-          image: ghcr.io/synthalorian/sentryclaw:latest
+          image: ghcr.io/blackshield-company/sentryclaw:latest
           ports:
             - containerPort: 3000
               name: http

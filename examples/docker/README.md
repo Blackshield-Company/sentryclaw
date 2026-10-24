@@ -9,7 +9,7 @@ version: "3.8"
 
 services:
   sentryclaw:
-    image: ghcr.io/synthalorian/sentryclaw:latest
+    image: ghcr.io/blackshield-company/sentryclaw:latest
     ports:
       - "3000:3000"
     environment:
