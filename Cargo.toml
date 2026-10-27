@@ -29,7 +29,7 @@ jsonwebtoken = "9"
 rusqlite = { version = "0.30", features = ["bundled", "chrono"] }
 tokio-rusqlite = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
-minijinja = "1.0"
+minijinja = "3.0"
 serde_yaml = "0.9"
 fastrand = "2.0"
 subtle = "2.5"
