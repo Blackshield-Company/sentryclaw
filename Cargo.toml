@@ -25,7 +25,7 @@ config = "0.14"
 clap = { version = "4.4", features = ["derive"] }
 tempfile = "3.9"
 regex = "1.10"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 rusqlite = { version = "0.30", features = ["bundled", "chrono"] }
 tokio-rusqlite = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
