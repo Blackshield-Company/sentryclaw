@@ -16,7 +16,7 @@ use sentryclaw::metrics::Metrics;
 use sentryclaw::rate_limit::RateLimiter;
 use sentryclaw::AppState;
 
-fn create_test_app() -> Router {
+fn create_test_state() -> AppState {
     let config = AppConfig {
         server: sentryclaw::config::ServerConfig {
             host: "0.0.0.0".to_string(),
@@ -73,25 +73,62 @@ fn create_test_app() -> Router {
     let metrics = Arc::new(Metrics::new());
     let rate_limiter = Arc::new(RateLimiter::new(60, 60));
 
-    let state = AppState {
+    AppState {
         config: Arc::new(config),
         database,
         metrics,
         rate_limiter,
-    };
+    }
+}
 
+fn create_test_app() -> Router {
     Router::new()
         .route("/webhook/github", post(sentryclaw::github::webhook_handler))
         .route("/webhook/gitlab", post(sentryclaw::gitlab::webhook_handler))
         .route("/health", get(|| async { StatusCode::OK }))
         .route("/metrics", get(metrics_test_handler))
-        .with_state(state)
+        .with_state(create_test_state())
 }
 
 async fn metrics_test_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> String {
     state.metrics.render_prometheus().await
+}
+
+/// Serving over a real TCP listener must supply `ConnectInfo`, which the
+/// webhook routes extract for rate limiting.
+#[tokio::test]
+async fn real_listener_serves_webhooks_with_connect_info() {
+    let app = sentryclaw::server::webhook_routes()
+        .route("/health", get(|| async { StatusCode::OK }))
+        .with_state(create_test_state());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(sentryclaw::server::serve(listener, app, async {
+        let _ = rx.await;
+    }));
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://{}/webhook/github", addr))
+        .header("x-hub-signature-256", "sha256=00")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 401);
+
+    let resp = client
+        .get(format!("http://{}/health", addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+
+    tx.send(()).unwrap();
+    server.await.unwrap().unwrap();
 }
 
 #[tokio::test]

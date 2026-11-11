@@ -15,6 +15,7 @@ pub mod rate_limit;
 pub mod retry;
 pub mod review;
 pub mod rule_engine;
+pub mod server;
 pub mod shutdown;
 pub mod templates;
 

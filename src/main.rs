@@ -1,19 +1,12 @@
-use axum::{
-    extract::ConnectInfo,
-    http::StatusCode,
-    response::Json,
-    routing::{get, post},
-    Router,
-};
+use axum::{http::StatusCode, response::Json, routing::get};
 use serde::Serialize;
-use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{info, instrument};
+use tracing::info;
 
 use sentryclaw::config::AppConfig;
 use sentryclaw::db::Database;
 use sentryclaw::metrics::Metrics;
-use sentryclaw::rate_limit::{extract_client_key, RateLimiter};
+use sentryclaw::rate_limit::RateLimiter;
 use sentryclaw::shutdown::{wait_for_shutdown, ShutdownHandle};
 use sentryclaw::AppState;
 
@@ -60,9 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     let dashboard_enabled = state.config.dashboard_config().enabled;
 
-    let mut app = Router::new()
-        .route("/webhook/github", post(github_webhook))
-        .route("/webhook/gitlab", post(gitlab_webhook))
+    let mut app = sentryclaw::server::webhook_routes()
         .route("/health", get(health_check))
         .route("/metrics", get(metrics_handler));
 
@@ -95,55 +86,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let shutdown_clone = shutdown.clone();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            wait_for_shutdown().await;
-            shutdown_clone.shutdown();
-        })
-        .await?;
+    sentryclaw::server::serve(listener, app, async move {
+        wait_for_shutdown().await;
+        shutdown_clone.shutdown();
+    })
+    .await?;
 
     // Stop background tasks once the server has drained.
     rate_limiter_for_shutdown.shutdown();
     info!("SentryClaw shut down cleanly");
     Ok(())
-}
-
-#[instrument(skip(state, headers, body), fields(provider = "github"))]
-async fn github_webhook(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    state: axum::extract::State<AppState>,
-    headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
-) -> StatusCode {
-    let client_key = extract_client_key(Some(addr));
-    state.metrics.record_webhook_received();
-
-    if !state.rate_limiter.is_allowed(&client_key).await {
-        state.metrics.record_webhook_rate_limited();
-        tracing::warn!("Rate limit exceeded for {}", client_key);
-        return StatusCode::TOO_MANY_REQUESTS;
-    }
-
-    sentryclaw::github::webhook_handler(state, headers, body).await
-}
-
-#[instrument(skip(state, headers, body), fields(provider = "gitlab"))]
-async fn gitlab_webhook(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    state: axum::extract::State<AppState>,
-    headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
-) -> StatusCode {
-    let client_key = extract_client_key(Some(addr));
-    state.metrics.record_webhook_received();
-
-    if !state.rate_limiter.is_allowed(&client_key).await {
-        state.metrics.record_webhook_rate_limited();
-        tracing::warn!("Rate limit exceeded for {}", client_key);
-        return StatusCode::TOO_MANY_REQUESTS;
-    }
-
-    sentryclaw::gitlab::webhook_handler(state, headers, body).await
 }
 
 async fn health_check(
