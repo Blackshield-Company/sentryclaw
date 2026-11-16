@@ -237,10 +237,8 @@ fn verify_github_signature(secret: &str, body: &Bytes, signature: &str) -> bool 
         Err(_) => return false,
     };
     mac.update(body);
-    let result = mac.finalize();
-    let code_bytes = result.into_bytes();
-
-    code_bytes.as_slice() == sig_bytes.as_slice()
+    // Constant-time comparison via the HMAC crate.
+    mac.verify_slice(&sig_bytes).is_ok()
 }
 
 pub async fn webhook_handler(
