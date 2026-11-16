@@ -95,12 +95,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let shutdown_clone = shutdown.clone();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            wait_for_shutdown().await;
-            shutdown_clone.shutdown();
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        wait_for_shutdown().await;
+        shutdown_clone.shutdown();
+    })
+    .await?;
 
     // Stop background tasks once the server has drained.
     rate_limiter_for_shutdown.shutdown();
